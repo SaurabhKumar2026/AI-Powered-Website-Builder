@@ -1,38 +1,55 @@
-import dns from "dns";
-dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1', '8.8.8.8']);
-
+import dns from "node:dns";
 import express from "express";
-// import "dotenv/config";
+import "dotenv/config";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import dotenv from "dotenv";
+
 import { connectToDatabase } from "./config/db.js";
 import authRouter from "./routes/authRoutes.js";
 import projectRouter from "./routes/projectRoutes.js";
-import dotenv from 'dotenv';
-
 
 dotenv.config();
 
+// Configure DNS before attempting the MongoDB connection.
+dns.setServers(
+  (process.env.DNS_SERVERS || "8.8.8.8,8.8.4.4")
+    .split(",")
+    .map((server) => server.trim())
+    .filter(Boolean)
+);
+
 const app = express();
 
-await connectToDatabase()
+app.use(
+  cors({
+    origin: process.env.ORIGINS.split(",").map((origin) => origin.trim()),
+    credentials: true,
+  })
+);
 
-app.use(cors({origin: process.env.ORIGINS.split(","), credentials: true}))
-app.use(cookieParser())
-app.use(express.json())
+app.use(cookieParser());
+app.use(express.json());
 
-app.get("/", (req, res)=> res.send("Server is Live!"))
-app.use('/api/auth', authRouter)
-app.use("/api/projects", projectRouter)
+app.get("/", (_req, res) => res.send("Server is Live!"));
 
-// Centralized error handler 
-app.use((err, _req, res, _next)=>{
-    console.error(`[Error] ${err.message}`);
-    res.status(500).json({error: err.message})
-})
+app.use("/api/auth", authRouter);
+app.use("/api/projects", projectRouter);
+
+app.use((err, _req, res, _next) => {
+  console.error("[Error]", err);
+  res.status(500).json({ error: err.message });
+});
 
 const port = process.env.PORT || 3000;
 
-app.listen(port, ()=>{
-    console.log(`Server is running at http://localhost:${port}`)
-})
+try {
+  await connectToDatabase();
+
+  app.listen(port, () => {
+    console.log(`Server is running at http://localhost:${port}`);
+  });
+} catch (err) {
+  console.error("Failed to connect to MongoDB:", err);
+  process.exit(1);
+}
